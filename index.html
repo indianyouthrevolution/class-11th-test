@@ -167,7 +167,7 @@
       modal.innerHTML = `
         <div style="width:92%;max-width:520px;background:#071423;padding:20px;border-radius:12px;color:var(--text);box-shadow:0 12px 36px rgba(2,6,23,0.7);text-align:left">
           <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px"><img src="https://i.ibb.co/mVz4Mbnh/wb-logo.jpg" alt="logo" style="height:36px;width:auto;border-radius:6px;object-fit:contain"/><h2 style="margin:0;font-size:18px;font-weight:800">Enter your phone number to start</h2></div>
-          <p style="margin:0 0 12px;color:#9fb7c1;font-size:13px">This paper is 27 marks. Time allowed: 1 hour. Each phone number may participate only once (on this browser/device). <strong>Note:</strong> Once you click <em>Start Test</em>, the timer will begin. Loading the document may take 1–2 minutes depending on your network — please wait.</p>
+          <p style="margin:0 0 12px;color:#9fb7c1;font-size:13px">This paper is 27 marks. Time allowed: 1 hour. Each phone may participate only once. <strong>Note:</strong> Once you click <em>Start Test</em>, the timer will begin. Loading the document may take 1–2 minutes depending on your network — please wait Dont close.</p>
           <input id="participantPhone" type="tel" inputmode="numeric" placeholder="Enter phone number (digits only)" style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);margin-bottom:10px;background:#0b1220;color:var(--text)" />
           <div style="display:flex;gap:8px;justify-content:flex-end">
             <button id="phoneCancel" style="padding:8px 12px;border-radius:8px;border:0;background:transparent;color:#94a3b8">Cancel</button>
@@ -182,8 +182,8 @@
         const input = document.getElementById('participantPhone');
         const err = document.getElementById('phoneError'); err.style.display='none'; err.textContent='';
         const phone = (input.value||'').replace(/[^0-9]/g,'').trim();
-        if(!(phone.length>=7 && phone.length<=15)){
-          err.style.display='block'; err.textContent='Please enter a valid phone number (7–15 digits).'; return;
+        if(!(phone.length>=7 && phone.length<=10)){
+          err.style.display='block'; err.textContent='Please enter a valid phone number (10 digits).'; return;
         }
         if(phoneExists(phone)){
           document.body.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100vh;background:#0f1724;color:#e6eef6;font-size:20px;font-weight:700;text-align:center;padding:20px">This phone number ('+phone+') has already participated.</div>';
@@ -235,3 +235,4 @@
   </script>
 </body>
 </html>
+
