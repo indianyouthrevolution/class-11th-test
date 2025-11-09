@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Offline PDF Viewer with Timer (Google Drive)</title>
+  <style>
+    :root{--bg:#0f1724;--panel:#0b1220;--accent:#06b6d4;--text:#e6eef6}
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial}
+    .container{display:flex;flex-direction:column;min-height:100vh}
+    main{flex:1;display:flex;align-items:stretch;padding:0;margin:0}
+    .viewer{flex:1;background:#fff;border-radius:0;overflow:hidden;min-height:100vh;transition:opacity 0.8s}
+    .viewer.embed-fade{opacity:0}
+    .viewer iframe, .viewer embed, .viewer object{width:100%;height:calc(100vh - 50px);border:0;display:block;margin-top:50px}
+
+    /* Top header with timer */
+    .topbar{position:fixed;left:0;right:0;top:0;background:linear-gradient(90deg,#06202a,#063244);padding:12px 18px;z-index:1000;box-shadow:0 6px 18px rgba(2,6,23,0.6)}
+    .topbar-inner{max-width:1100px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;color:var(--text)}
+    .topbar .title{font-weight:700;font-size:14px;color:#cff7fb}
+    .topbar .time-inline{font-weight:800;font-size:16px}
+
+    /* Submit button visible so users can open form before time ends */
+    .submit-wrap{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;z-index:999;}
+    .submit-btn{background:var(--accent);color:#042027;border:none;padding:10px 18px;border-radius:999px;font-weight:700;box-shadow:0 6px 18px rgba(3,7,18,0.45)}
+
+    /* Small helper (hidden) -- kept for compatibility */
+    .timer{display:none}
+
+    /* Responsive tweaks */
+    @media(min-width:900px){ .viewer iframe{height:calc(100vh - 56px);} }
+    /* make room for topbar height ~56px on larger screens */
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header class="topbar" id="topbar"><div class="topbar-inner"><div style="display:flex;align-items:center;gap:10px"><img src="https://i.ibb.co/mVz4Mbnh/wb-logo.jpg" alt="logo" style="height:28px;width:auto;border-radius:4px;object-fit:contain"/><div class="title">27 marks — English Paper 01</div></div><div class="time-inline" id="timeDisplayHeader">01:00:00</div></div></header> 
+
+    <main>
+      <div class="viewer" id="pdfViewer">
+        <!-- The PDF iframe will be injected here (remote or local) -->
+      </div>
+    </main>
+
+    <div class="submit-wrap">
+      <button id="submitBtn" class="submit-btn">Submit</button>
+    </div>
+  </div>
+
+  <script>
+    // ===== CONFIG =====
+    // Provide config via URL query parameters: ?pdf=...&form=...&sec=...
+
+    let PDF_URL = 'https://drive.google.com/file/d/1Wug4G5-2m8v1jRpM7-VJEUp1Tym0HGMK/preview';
+    let FORM_URL = 'https://form.svhrt.com/691087a83a10c48735e29b76';
+    const DEFAULT_SECONDS = 3600; // 1 hour
+
+    // ===== helpers =====
+    function params(){
+      const p = {};
+      location.search.substring(1).split('&').forEach(pair=>{
+        if(!pair) return;
+        const [k,v] = pair.split('=').map(decodeURIComponent);
+        p[k] = v;
+      });
+      return p;
+    }
+
+    function drivePreviewLink(url){
+      if(!url) return url;
+      try{
+        const m1 = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+        if(m1) return `https://drive.google.com/file/d/${m1[1]}/preview`;
+        const m2 = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+        if(m2) return `https://drive.google.com/file/d/${m2[1]}/preview`;
+      }catch(e){}
+      return url;
+    }
+
+    const p = params();
+    if(p.pdf) PDF_URL = drivePreviewLink(p.pdf);
+    if(p.form) FORM_URL = p.form;
+    if(p.sec) window.__SEC = parseInt(p.sec);
+
+    const viewer = document.getElementById('pdfViewer');
+    const timeDisplay = document.getElementById('timeDisplayHeader');
+    const submitBtn = document.getElementById('submitBtn');
+
+    // Use remote PDF if provided
+    function loadPDF(){
+      if(PDF_URL){
+        try{
+          viewer.innerHTML = '';
+          const iframe = document.createElement('iframe');
+          iframe.src = PDF_URL;
+          iframe.loading = 'lazy';
+          iframe.style.width = '100%';
+          // reduce height to account for header on some screens
+          iframe.style.height = 'calc(100vh - 56px)';
+          iframe.setAttribute('referrerpolicy', 'no-referrer');
+          viewer.appendChild(iframe);
+        }catch(e){ console.error(e); }
+      } else {
+        const fallback = document.createElement('iframe');
+        fallback.src = 'Class 11th Sem 2 english test 1.html';
+        fallback.loading = 'lazy';
+        fallback.style.width = '100%';
+        fallback.style.height = 'calc(100vh - 56px)';
+        viewer.appendChild(fallback);
+      }
+    }
+
+    // ===== Timer logic =====
+    let countdownSeconds = DEFAULT_SECONDS;
+    if(window.__SEC && Number.isFinite(window.__SEC)) countdownSeconds = window.__SEC;
+
+    let interval = null; let startTs = null; let elapsed = 0; let running = false;
+
+    function fmt(ms){
+      const total = Math.max(0, Math.floor(ms/1000));
+      const h = Math.floor(total/3600).toString().padStart(2,'0');
+      const m = Math.floor((total%3600)/60).toString().padStart(2,'0');
+      const s = (total%60).toString().padStart(2,'0');
+      return `${h}:${m}:${s}`;
+    }
+
+    function finishActions(){
+      viewer.classList.add('embed-fade');
+      setTimeout(()=>{
+        if(FORM_URL) window.location.href = FORM_URL;
+        else window.location.href = (p.form || FORM_URL || 'about:blank');
+      },700);
+      running=false; clearInterval(interval); interval=null;
+    }
+
+    function tick(){
+      const now = Date.now();
+      const remaining = countdownSeconds*1000 - (elapsed + (running ? now - startTs : 0));
+      timeDisplay.textContent = fmt(remaining);
+      if(remaining <= 0){ finishActions(); try{ const ac = new (window.AudioContext || window.webkitAudioContext)(); const o = ac.createOscillator(); o.type='sine'; o.frequency.value=880; o.connect(ac.destination); o.start(); setTimeout(()=>{o.stop(); ac.close();},200);}catch(e){} }
+    }
+
+    function startTimer(){ if(running) return; running=true; startTs=Date.now(); if(!interval) interval=setInterval(tick,250); }
+
+    // ===== Submit button behavior =====
+    submitBtn.addEventListener('click', ()=>{
+      if(FORM_URL || p.form){
+        const ok = confirm('Are you sure you want to open the form now? You will leave the document.');
+        if(ok){ window.location.href = FORM_URL || p.form; }
+      } else { alert('No form URL provided. Add "form" parameter to the page URL or edit FORM_URL in the file.'); }
+    });
+
+    // ===== Phone-based one-time participation (client-side) =====
+    // NOTE: client-side only — same phone on same browser/device is prevented. For global enforcement use a server or Google Form.
+
+    function getStoredPhones(){ try{ return JSON.parse(localStorage.getItem('participatedPhones')||'[]'); }catch(e){ return []; } }
+    function markPhoneParticipated(phone){ const arr = getStoredPhones(); arr.push(phone); localStorage.setItem('participatedPhones', JSON.stringify(arr)); }
+    function phoneExists(phone){ const arr = getStoredPhones(); return arr.indexOf(phone) !== -1; }
+
+    function showPhoneModal(){
+      const modal = document.createElement('div');
+      modal.id = 'phoneModal';
+      modal.style.position = 'fixed';
+      modal.style.left = '0'; modal.style.top = '0'; modal.style.right = '0'; modal.style.bottom = '0';
+      modal.style.background = 'rgba(2,6,23,0.85)';
+      modal.style.display = 'flex'; modal.style.alignItems = 'center'; modal.style.justifyContent = 'center';
+      modal.style.zIndex = '2000';
+      modal.innerHTML = `
+        <div style="width:92%;max-width:520px;background:#071423;padding:20px;border-radius:12px;color:var(--text);box-shadow:0 12px 36px rgba(2,6,23,0.7);text-align:left">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px"><img src="https://i.ibb.co/mVz4Mbnh/wb-logo.jpg" alt="logo" style="height:36px;width:auto;border-radius:6px;object-fit:contain"/><h2 style="margin:0;font-size:18px;font-weight:800">Enter your phone number to start</h2></div>
+          <p style="margin:0 0 12px;color:#9fb7c1;font-size:13px">This paper is 27 marks. Time allowed: 1 hour. Each phone number may participate only once (on this browser/device). <strong>Note:</strong> Once you click <em>Start Test</em>, the timer will begin. Loading the document may take 1–2 minutes depending on your network — please wait.</p>
+          <input id="participantPhone" type="tel" inputmode="numeric" placeholder="Enter phone number (digits only)" style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);margin-bottom:10px;background:#0b1220;color:var(--text)" />
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button id="phoneCancel" style="padding:8px 12px;border-radius:8px;border:0;background:transparent;color:#94a3b8">Cancel</button>
+            <button id="phoneSubmit" style="padding:8px 12px;border-radius:8px;border:0;background:var(--accent);color:#042027;font-weight:700">Start Test</button>
+          </div>
+          <div id="phoneError" style="color:#ffb4b4;font-size:13px;margin-top:8px;display:none"></div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+
+      document.getElementById('phoneSubmit').addEventListener('click', ()=>{
+        const input = document.getElementById('participantPhone');
+        const err = document.getElementById('phoneError'); err.style.display='none'; err.textContent='';
+        const phone = (input.value||'').replace(/[^0-9]/g,'').trim();
+        if(!(phone.length>=7 && phone.length<=15)){
+          err.style.display='block'; err.textContent='Please enter a valid phone number (7–15 digits).'; return;
+        }
+        if(phoneExists(phone)){
+          document.body.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100vh;background:#0f1724;color:#e6eef6;font-size:20px;font-weight:700;text-align:center;padding:20px">This phone number ('+phone+') has already participated.</div>';
+          return;
+        }
+        // mark and continue
+        markPhoneParticipated(phone);
+        modal.remove();
+        initAfterPhone(phone);
+      });
+
+      document.getElementById('phoneCancel').addEventListener('click', ()=>{
+        document.body.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100vh;background:#0f1724;color:#e6eef6;font-size:20px;font-weight:700;text-align:center;padding:20px">You cancelled. Reload the page to try again.</div>';
+      });
+    }
+
+    function initAfterPhone(phone){
+      // start viewer and timer
+      loadPDF();
+      timeDisplay.textContent = fmt(countdownSeconds*1000);
+      setTimeout(()=>{ startTimer(); }, 400);
+    }
+
+    // On page load: show phone modal (skip with ?skipPhone=1)
+    window.addEventListener('load', ()=>{
+      const urlParams = new URLSearchParams(location.search);
+      if(urlParams.get('skipPhone')==='1'){
+        initAfterPhone('testphone');
+        return;
+      }
+      showPhoneModal();
+
+      // Basic anti-actions
+      viewer.addEventListener('contextmenu', (e)=>{ e.preventDefault(); });
+      window.addEventListener('keydown', (e)=>{ if((e.ctrlKey && ['p','s','o','u'].includes((e.key||'').toLowerCase())) || e.key==='F12'){ e.preventDefault(); } });
+
+      // submit button hint
+      if(!(FORM_URL || p.form)){
+        submitBtn.title = 'No form provided — edit file or add ?form=your_form_url to the page URL';
+      }
+    });
+
+    // Expose some variables to allow the page host to set them from console if desired
+    window.__pdfViewerConfig = {
+      setPdf: (url)=>{ PDF_URL = drivePreviewLink(url); loadPDF(); },
+      setForm: (url)=>{ FORM_URL = url; },
+      setSeconds: (s)=>{ countdownSeconds = s; timeDisplay.textContent = fmt(countdownSeconds*1000); }
+    };
+  </script>
+</body>
+</html>
